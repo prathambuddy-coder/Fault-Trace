@@ -840,7 +840,7 @@ jobs:
 
   # The evaluation harness runs in CI (tools/eval/README.md).
   #
-  # With Jev against the mock, the gate `--fail-on-gate` reads is the rules
+  # With Von against the mock, the gate `--fail-on-gate` reads is the rules
   # baseline's, counted at detection level (a suspect event in each positive's
   # credited span): the smoke scenarios leave the core-10 gate attainable, so
   # the job exits 0, and it exits 2 once they put the gate out of reach. The
@@ -850,11 +850,11 @@ jobs:
     needs: [test]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    # The rules baseline and Jev against the contracts' mock server: no key, no
-    # cassette, and every Jev figure of the run marked "mock — not informative".
+    # The rules baseline and Von against the contracts' mock server: no key, no
+    # cassette, and every Von figure of the run marked "mock — not informative".
     env:
       EVAL_PROFILE: smoke
-      EVAL_JEV_MODE: mock
+      EVAL_VON_MODE: mock
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

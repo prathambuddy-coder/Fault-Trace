@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: 2026 Meddle S.r.l.
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mqtt
+  namespace: fault-diagnosis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mqtt
+  template:
+    metadata:
+      labels:
+        app: mqtt
+    spec:
+      containers:
+        - name: mosquitto
+          image: eclipse-mosquitto:2.0.22
+          ports:
+            - containerPort: 1883
+              name: mqtt
+            - containerPort: 8883
+              name: mqtts
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mqtt
+  namespace: fault-diagnosis
+spec:
+  selector:
+    app: mqtt
+  ports:
+    - port: 1883
+      targetPort: 1883
+      name: mqtt
+    - port: 8883
+      targetPort: 8883
+      name: mqtts

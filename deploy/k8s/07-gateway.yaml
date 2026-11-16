@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: 2026 Meddle S.r.l.
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: fault-diagnosis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: ghcr.io/arunpune/fdp-gateway:latest
+          envFrom:
+            - configMapRef:
+                name: fdp-config
+          env:
+            - name: MQTT_GATEWAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fdp-secrets
+                  key: MQTT_GATEWAY_PASSWORD
+          ports:
+            - containerPort: 8082
+              name: health
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: fault-diagnosis
+spec:
+  selector:
+    app: gateway
+  ports:
+    - port: 8082
+      targetPort: 8082

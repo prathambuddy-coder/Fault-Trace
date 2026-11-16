@@ -322,7 +322,13 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const decisionBackend: DecisionBackendName =
     raw.DECISION_BACKEND ?? (typesafeApiKey === null ? "rules" : "von");
 
-  if (decisionBackend === "von" && typesafeApiKey === null) {
+  // TYPESAFE_API_KEY is required for the cloud TypeSafe API, but optional when running
+  // self-hosted Von locally (where a custom TYPESAFE_BASE_URL is set).
+  if (
+    decisionBackend === "von" &&
+    typesafeApiKey === null &&
+    raw.TYPESAFE_BASE_URL === "https://api.typesafe.ai"
+  ) {
     throw new ConfigError(["DECISION_BACKEND is von but TYPESAFE_API_KEY is not set"]);
   }
   if (decisionBackend === "llm" && llmApiKey === null) {

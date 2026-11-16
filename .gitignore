@@ -62,3 +62,7 @@ test-results/
 .idea/
 .vscode/
 .DS_Store
+
+# TLS certificates — generated locally; never commit key material
+infra/certs/*.crt
+infra/certs/*.key

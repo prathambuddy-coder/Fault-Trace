@@ -10,6 +10,12 @@
 # envsubst, and the Dockerfile's NGINX_ENVSUBST_FILTER=^BACKEND_ limits the
 # substitution to BACKEND_UPSTREAM, so nginx's own $uri and $http_upgrade below
 # reach nginx untouched.
+#
+# Two server blocks are defined below:
+#   - port 8080  plain HTTP (always active; local dev works without certs)
+#   - port 8443  HTTPS/TLS  (active when certs are mounted at /etc/nginx/certs/)
+#
+# A commented-out redirect block at the bottom shows how to enforce HTTPS.
 
 server {
   listen 8080;
@@ -60,3 +66,63 @@ server {
     add_header Cache-Control "no-cache";
   }
 }
+
+# TLS/HTTPS server block — mirrors all locations from the 8080 block above.
+# Requires certs mounted at /etc/nginx/certs/ (see scripts/gen-self-signed-cert.sh
+# for local dev, or supply real certs from Let's Encrypt / your CA for production).
+server {
+  listen 8443 ssl;
+  server_tokens off;
+  root /usr/share/nginx/html;
+
+  ssl_certificate     /etc/nginx/certs/server.crt;
+  ssl_certificate_key /etc/nginx/certs/server.key;
+  ssl_protocols       TLSv1.2 TLSv1.3;
+  ssl_ciphers         HIGH:!aNULL:!MD5;
+  ssl_session_cache   shared:SSL:10m;
+  ssl_session_timeout 10m;
+
+  gzip on;
+  gzip_vary on;
+  gzip_types text/css application/javascript application/json image/svg+xml;
+
+  location = /healthz {
+    access_log off;
+    default_type text/plain;
+    return 200 'ok';
+  }
+
+  location /api/ {
+    proxy_pass http://${BACKEND_UPSTREAM}/api/;
+    proxy_http_version 1.1;
+    proxy_read_timeout 60s;
+  }
+
+  location = /ws {
+    proxy_pass http://${BACKEND_UPSTREAM}/ws;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;
+  }
+
+  location /assets/ {
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+  }
+
+  location / {
+    try_files $uri /index.html;
+    add_header Cache-Control "no-cache";
+  }
+}
+
+# Uncomment in production to enforce HTTPS.
+# Replace the plain HTTP block above with this redirect block so that every
+# HTTP request is permanently redirected to the HTTPS counterpart.
+#
+# server {
+#   listen 8080;
+#   server_tokens off;
+#   return 301 https://$host:8443$request_uri;
+# }

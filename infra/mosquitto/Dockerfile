@@ -16,7 +16,17 @@
 # scripts/ops/compose-invariants.py reads from the line below.
 ARG MQTT_IMAGE=eclipse-mosquitto:2.0.22
 FROM ${MQTT_IMAGE}
+# PROD_MODE build argument (default: false).
+# When set to true at build time (`--build-arg PROD_MODE=true`), the production
+# configuration (mosquitto.prod.conf) is copied into the image in place of the
+# development one. In production mode the broker listens on 8883 with TLS and
+# rejects anonymous connections. In the default (false) mode it listens on 1883
+# and allows anonymous reads for local development convenience.
+# Note: the entrypoint also supports runtime switching via the MQTT_PROD_MODE
+# environment variable, which does not require a rebuild.
+ARG PROD_MODE=false
 COPY --chmod=0644 infra/mosquitto/mosquitto.conf /mosquitto/config/mosquitto.conf
+COPY --chmod=0644 infra/mosquitto/mosquitto.prod.conf /mosquitto/config/mosquitto.prod.conf
 COPY --chmod=0600 --chown=mosquitto:mosquitto infra/mosquitto/acl /mosquitto/config/acl
 COPY --chmod=0600 --chown=mosquitto:mosquitto infra/mosquitto/passwd.txt /mosquitto/config/passwd.txt
 COPY --chmod=0755 infra/mosquitto/entrypoint.sh /fdp-entrypoint.sh

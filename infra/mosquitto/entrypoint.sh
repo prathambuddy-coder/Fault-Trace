@@ -18,8 +18,24 @@
 #
 # This runs as root, before the official entrypoint chowns /mosquitto and the
 # broker drops privileges, so the 0600 file it writes is readable by mosquitto.
+#
+# Production mode: when MQTT_PROD_MODE=true is set in the container environment,
+# this script copies /mosquitto/config/mosquitto.prod.conf over
+# /mosquitto/config/mosquitto.conf before Mosquitto starts. That activates the
+# production configuration (port 8883, TLS, no anonymous access) without
+# requiring a rebuild. TLS certificates must be mounted into /mosquitto/certs/.
 
 set -eu
+
+# --- Production mode activation ---
+if [ "${MQTT_PROD_MODE:-false}" = "true" ]; then
+  if [ -f /mosquitto/config/mosquitto.prod.conf ]; then
+    echo "entrypoint: MQTT_PROD_MODE=true — activating production config (port 8883, TLS, no anonymous)"
+    cp /mosquitto/config/mosquitto.prod.conf /mosquitto/config/mosquitto.conf
+  else
+    echo "entrypoint: WARNING: MQTT_PROD_MODE=true but /mosquitto/config/mosquitto.prod.conf not found; using default config" >&2
+  fi
+fi
 
 SOURCE=/mosquitto/config/passwd.txt
 TARGET=/mosquitto/config/passwd

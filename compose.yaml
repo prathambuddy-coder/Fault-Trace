@@ -44,6 +44,13 @@ services:
     restart: unless-stopped
     logging: *logging
 
+  # To enable production MQTT (no anonymous, TLS on port 8883), set:
+  #   MQTT_PROD_MODE=true
+  # and mount TLS certs into the mqtt container:
+  #   - ./infra/certs/ca.crt:/mosquitto/certs/ca.crt:ro
+  #   - ./infra/certs/server.crt:/mosquitto/certs/server.crt:ro
+  #   - ./infra/certs/server.key:/mosquitto/certs/server.key:ro
+  # Also update MQTT_URL in .env to mqtts://localhost:8883
   mqtt:
     build: { context: ., dockerfile: infra/mosquitto/Dockerfile }
     environment:
@@ -52,8 +59,11 @@ services:
       MQTT_BACKEND_DIAG_PASSWORD: ${MQTT_BACKEND_DIAG_PASSWORD:-backend-diag}
       MQTT_BACKEND_OPS_PASSWORD: ${MQTT_BACKEND_OPS_PASSWORD:-backend-ops}
       MQTT_EVAL_PASSWORD: ${MQTT_EVAL_PASSWORD:-eval}
+      MQTT_PROD_MODE: ${MQTT_PROD_MODE:-false}
     ports:
       - "${MQTT_PORT:-1883}:1883"
+      # Uncomment for MQTTS in production
+      # - "${MQTT_TLS_PORT:-8883}:8883"
     healthcheck:
       test:
         [
@@ -163,6 +173,25 @@ services:
     restart: unless-stopped
     logging: *logging
 
+  von:
+    image: ghcr.io/wfzyx/von:cpu
+    volumes:
+      - von-hf:/data/huggingface
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s # model weights (~3 GB) are fetched from HuggingFace on first run
+    restart: unless-stopped
+    logging: *logging
+
   backend:
     build: { context: ., dockerfile: apps/backend/Dockerfile }
     environment:
@@ -179,11 +208,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-fdp}
       PG_APP_PASSWORD: ${PG_APP_PASSWORD:-app_rw}
       PG_GT_PASSWORD: ${PG_GT_PASSWORD:-gt_rw}
-      # Empty means "unset": the backend then picks von when a key is set and
-      # the rules engine otherwise.
-      DECISION_BACKEND: ${DECISION_BACKEND:-}
+      # Default to von since the local von container is included in compose.yaml.
+      DECISION_BACKEND: ${DECISION_BACKEND:-von}
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
-      TYPESAFE_BASE_URL: ${TYPESAFE_BASE_URL:-https://api.typesafe.ai}
+      TYPESAFE_BASE_URL: ${TYPESAFE_BASE_URL:-http://von:8000}
       VON_MODEL: ${VON_MODEL:-von-1.13.0}
       LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
       LLM_API_KEY: ${LLM_API_KEY:-}
@@ -205,6 +233,9 @@ services:
       TELEMETRY_RETENTION_SIM_DAYS: ${TELEMETRY_RETENTION_SIM_DAYS:-365}
       MODEL_CACHE_DIR: /models
       EMBEDDER_ALLOW_DOWNLOAD: ${EMBEDDER_ALLOW_DOWNLOAD:-false}
+      JWT_SECRET: ${JWT_SECRET:-dev-insecure-jwt-secret-min-32-chars-change-for-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      USERS_JSON: ${USERS_JSON:-}
       RULES_DISABLED: ${RULES_DISABLED:-flow_pulses_missing}
       WS_TELEMETRY_INTERVAL_MS: ${WS_TELEMETRY_INTERVAL_MS:-250}
     volumes:
@@ -227,6 +258,7 @@ services:
       init: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
       mqtt: { condition: service_healthy }
+      von: { condition: service_healthy }
     restart: unless-stopped
     logging: *logging
     extra_hosts:
@@ -238,6 +270,9 @@ services:
       BACKEND_UPSTREAM: backend:3000
     ports:
       - "${UI_PORT:-8080}:8080"
+      - "${UI_HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ./infra/certs:/etc/nginx/certs:ro
     healthcheck:
       # 127.0.0.1, not localhost: nginx listens on IPv4 only and busybox wget
       # tries ::1 first for localhost (apps/frontend/Dockerfile).
@@ -254,3 +289,15 @@ services:
 volumes:
   pgdata:
   model-cache:
+  von-hf:
+
+# --- Production Docker Secrets (optional) ---
+# Uncomment to use Docker secrets instead of environment variables.
+# Create them with: echo "value" | docker secret create secret_name -
+# secrets:
+#   typesafe_api_key:
+#     external: true
+#   jwt_secret:
+#     external: true
+#   postgres_password:
+#     external: true

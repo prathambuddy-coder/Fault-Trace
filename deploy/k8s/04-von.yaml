@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: 2026 Meddle S.r.l.
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: von
+  namespace: fault-diagnosis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: von
+  template:
+    metadata:
+      labels:
+        app: von
+    spec:
+      containers:
+        - name: von
+          image: ghcr.io/wfzyx/von:cpu
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: HF_HOME
+              value: /data/huggingface
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 2Gi
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+          volumeMounts:
+            - name: von-cache
+              mountPath: /data/huggingface
+      volumes:
+        - name: von-cache
+          persistentVolumeClaim:
+            claimName: von-cache-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: von-cache-pvc
+  namespace: fault-diagnosis
+spec:
+  accessModes: [ "ReadWriteOnce" ]
+  resources:
+    requests:
+      storage: 15Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: von
+  namespace: fault-diagnosis
+spec:
+  selector:
+    app: von
+  ports:
+    - port: 8000
+      targetPort: 8000

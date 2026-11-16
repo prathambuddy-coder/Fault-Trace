@@ -23,6 +23,24 @@ What the design does protect is narrower, and each part is enforced in code or b
 
 ## What the stack exposes
 
+### TLS configuration
+
+The stack now supports HTTPS on port **8443** via nginx's TLS listener alongside the original plain-HTTP listener on port **8080**.
+
+**Generate a self-signed certificate for local development:**
+
+```bash
+bash scripts/gen-self-signed-cert.sh        # writes infra/certs/server.{crt,key}
+```
+
+The script calls `openssl req -x509` with RSA-4096 / SHA-256, a 365-day validity, `CN=localhost` and a SAN covering `DNS:localhost` and `IP:127.0.0.1`. The generated files are mounted into the `frontend` container read-only at `/etc/nginx/certs/` by `compose.yaml`.
+
+**Supply a real certificate (staging or production):**
+
+Place your CA-signed `server.crt` and `server.key` in `infra/certs/` (or point the volume mount at another directory) before starting the stack. Both files are gitignored so key material never enters the repository.
+
+**Plain HTTP on port 8080 remains active** so local development still works without any certificate. The nginx config contains a commented-out redirect block (`# Uncomment in production to enforce HTTPS`) in `apps/frontend/nginx/default.conf.template` that replaces the plain-HTTP server block with a 301 redirect to the HTTPS port when uncommented.
+
 ```mermaid
 flowchart LR
     BR["Browser"] -->|"UI_PORT, default 8080"| FE["frontend<br/>nginx"]
@@ -66,6 +84,8 @@ These are the only two kinds of write routes. The WebSocket streams from server 
 `infra/mosquitto/mosquitto.conf` sets `allow_anonymous true` beside a password file and an ACL. The ACL's general block, which applies to anonymous clients only, grants reads of `plant/cau-7/telemetry/#`, `plant/cau-7/status/#`, `plant/cau-7/events/#`, `plant/cau-7/decisions`, `plant/cau-7/alerts/#` and `$SYS/#`, and no write at all. Ground truth under `gt/#` and the control topics under `plant/cau-7/control/#` need a credential. This is what lets the README's `mosquitto_sub -h localhost -p 1883 -t 'plant/#' -v` work with no setup, and it also means an anonymous reader sees every decision, with its candidate faults and manual references.
 
 Mosquitto grants a subscription to a denied filter and then never delivers on it, so the repository's isolation tests assert non-delivery against a positive control, never a `SUBACK` code; the measured semantics of the ACL are in [api.md](api.md#broker-acl).
+
+To switch to production MQTT mode, set `MQTT_PROD_MODE=true` in your `.env` and mount TLS certificates into the `mqtt` container (`infra/certs/ca.crt`, `infra/certs/server.crt`, `infra/certs/server.key`). Run `scripts/gen-self-signed-cert.sh` for a local self-signed set, or supply certificates from your CA. With `MQTT_PROD_MODE=true` the broker's entrypoint activates `infra/mosquitto/mosquitto.prod.conf` at start: **what changes** is that the broker switches to MQTTS on port 8883 (TLS enforced, `tls_version tlsv1.2`), anonymous access is disabled (`allow_anonymous false`), and every client must authenticate with a credential from the password file. Update `MQTT_URL` in your `.env` to `mqtts://localhost:8883`. **What stays the same** is the ACL file: `infra/mosquitto/acl` still controls per-topic permissions for every named credential, so the ground-truth isolation and the write-only restrictions on the control topic are unaffected by the switch.
 
 ## Credentials
 
@@ -118,6 +138,54 @@ Set the new value in `.env`; Compose hands the same variable to the server and t
 - **Database passwords.** Postgres creates its roles once, on an empty data volume (`infra/postgres/initdb/00-roles.sh`), so a changed `POSTGRES_PASSWORD` or `PG_*_PASSWORD` takes effect only on a new volume. Run `make reset-db`, then `make up`. `make reset-db` deletes the database volume alone: the next start re-creates the roles, re-applies the migrations and re-ingests the manual with the cached embedding model. `make reset` also works but deletes the model cache too, so the model is downloaded again.
 - **Broker passwords.** The broker's entrypoint hashes the password file from the `MQTT_<USER>_PASSWORD` variables at every container start, so a new value takes effect on the next `make up`, with no rebuild and no reset.
 - **Host tools.** `make eval-stack` connects with `DATABASE_URL_EVAL`: the URL a stack kept by `scripts/smoke.sh --keep` wrote to `reports/smoke/db-url-eval`, else `postgres://eval:eval@localhost:5432/fdp`. After changing `PG_EVAL_PASSWORD`, pass the new URL, as in `make eval-stack DATABASE_URL_EVAL=postgres://eval:<password>@localhost:5432/fdp`.
+
+## Production secret management
+
+Before deploying to any environment beyond a trusted local machine, run the secret validation script to catch insecure defaults:
+
+```sh
+bash scripts/validate-secrets.sh
+```
+
+Or via Make:
+
+```sh
+make check-secrets
+```
+
+The script verifies that every required secret is set, that none of the PoC defaults remain in place, and that `JWT_SECRET` is at least 32 characters long. It exits non-zero and lists every violation.
+
+### Generating secure values
+
+| Variable              | Command                       |
+| --------------------- | ----------------------------- |
+| `JWT_SECRET`          | `openssl rand -hex 32`        |
+| `POSTGRES_PASSWORD`   | `openssl rand -base64 24`     |
+| `PG_APP_PASSWORD`     | `openssl rand -base64 24`     |
+| `PG_GT_PASSWORD`      | `openssl rand -base64 24`     |
+| `PG_EVAL_PASSWORD`    | `openssl rand -base64 24`     |
+| `MQTT_*_PASSWORD`     | `openssl rand -base64 24`     |
+
+### Docker secrets (Swarm / Compose v2)
+
+`compose.yaml` includes a commented-out top-level `secrets:` block that maps the three most sensitive variables to external Docker secrets. To activate it, uncomment the block and create the secrets with:
+
+```sh
+echo "my-jwt-secret" | docker secret create jwt_secret -
+echo "my-pg-password" | docker secret create postgres_password -
+echo "my-api-key"    | docker secret create typesafe_api_key -
+```
+
+Then reference each secret in the relevant service's `secrets:` list (see the Docker Compose secrets documentation). Using Docker secrets means the values never appear in environment variables or `docker inspect` output.
+
+### Enterprise secret stores
+
+For production deployments, prefer a dedicated secret store over environment variables:
+
+- **HashiCorp Vault** — use the Vault Agent sidecar or the `vault` CLI to inject secrets at container start-up.
+- **AWS Secrets Manager** — retrieve secrets in an entrypoint script with `aws secretsmanager get-secret-value`, or use the AWS Secrets Manager CSI driver.
+
+Neither integration is included in this PoC; both are drop-in replacements for the environment-variable approach used here.
 
 ## What leaves the stack
 

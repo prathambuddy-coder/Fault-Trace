@@ -27,6 +27,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import { overlayReadRoutes, type OverlayReadPorts } from "../overlay/routes-read.ts";
 import { overlaySimRoutes, type SimRoutePorts } from "../overlay/routes-sim.ts";
+import { authRoutes } from "../auth/index.ts";
 import { alarmsRoutes } from "./alarms.ts";
 import { alertsRoutes } from "./alerts.ts";
 import { catalogRoutes } from "./catalog.ts";
@@ -101,6 +102,8 @@ export function apiRoutes(ports: ApiPorts): FastifyPluginAsync {
     });
 
     await fastify.register(healthRoutes(ports.health, ports.startedAt));
+    // Phase 1: Authentication & Identity endpoints (/api/auth/login, /api/auth/me)
+    await fastify.register(authRoutes());
     if (ports.dashboard !== undefined) {
       await fastify.register(dashboardRoutes(ports.dashboard));
     }

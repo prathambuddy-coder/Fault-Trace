@@ -43,7 +43,7 @@ import { createCatalogRepo } from "./api/repo-catalog.ts";
 import { createSnapshotReaders } from "./api/snapshot-readers.ts";
 import { systemClock, type WallClock } from "./clock.ts";
 import { ConfigError, decisionModel, gateThresholds, type Env } from "./config/env.ts";
-import type { Secret } from "./config/secret.ts";
+import { Secret } from "./config/secret.ts";
 import { pricesFor, summaryPrices } from "./cost/index.ts";
 import { createCostRepo } from "./cost/repo.ts";
 import { createAppPool } from "./db/app.ts";
@@ -235,7 +235,9 @@ function defaultBackendFactories(clock: WallClock, logger: Logger): DecisionBack
     rules: () => createRulesBackend({ labels: SIGNAL_LABELS, now }),
     von: (env) =>
       createVonBackend({
-        apiKey: requireKey(env.typesafeApiKey, "TYPESAFE_API_KEY"),
+        // apiKey is optional for local/self-hosted Von; fall back to an empty string
+        // which the local server ignores (it only matters for the cloud TypeSafe API).
+        apiKey: env.typesafeApiKey ?? new Secret(""),
         baseURL: env.typesafeBaseUrl,
         model: env.vonModel,
         labels: SIGNAL_LABELS,

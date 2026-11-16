@@ -58,7 +58,8 @@ function missingFactory(name: string): ConfigError {
 export function selectBackend(env: Env, factories: DecisionBackendFactories): DecisionBackend {
   switch (env.decisionBackend) {
     case "von": {
-      if (env.typesafeApiKey === null) {
+      // apiKey is optional for self-hosted Von, but required for the cloud API.
+      if (env.typesafeApiKey === null && env.typesafeBaseUrl === "https://api.typesafe.ai") {
         throw new ConfigError(["DECISION_BACKEND is von but TYPESAFE_API_KEY is not set"]);
       }
       if (factories.von === undefined) throw missingFactory("von");
